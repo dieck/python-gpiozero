@@ -148,10 +148,11 @@ class SharedMixin(object):
 
 class EventsMixin(object):
     """
-    Adds edge-detected :meth:`when_activated` and :meth:`when_deactivated`
-    events to a device based on changes to the :attr:`~Device.is_active`
-    property common to all devices. Also adds :meth:`wait_for_active` and
-    :meth:`wait_for_inactive` methods for level-waiting.
+    Adds edge-detected :meth:`when_activated`, :meth:`when_deactivated`
+    and :meth:`when_toggled` events to a device based on changes to the
+    :attr:`~Device.is_active` property common to all devices. Also adds
+    :meth:`wait_for_active`, :meth:`wait_for_inactive` and
+    :meth:`wait_for_toggle` methods for level-waiting.
 
     .. note::
 
@@ -164,8 +165,10 @@ class EventsMixin(object):
         super(EventsMixin, self).__init__(*args, **kwargs)
         self._active_event = Event()
         self._inactive_event = Event()
+        self._toggle_event = Event()
         self._when_activated = None
         self._when_deactivated = None
+        self._when_toggled = None
         self._last_state = None
         self._last_changed = time()
 
@@ -190,6 +193,20 @@ class EventsMixin(object):
             (the default), then wait indefinitely until the device is inactive.
         """
         return self._inactive_event.wait(timeout)
+
+    def wait_for_toggle(self, timeout=None):
+        """
+        Pause the script until the device state is toggled, or the timeout is
+        reached.
+
+        :param float timeout:
+            Number of seconds to wait before proceeding. If this is ``None``
+            (the default), then wait indefinitely until the device is inactive.
+        """
+        ev = self._toggle_event.wait(timeout)
+        # need to clear event after wait, so it can fire again
+        self._toggle_event.clear()
+        return ev
 
     @property
     def when_activated(self):
@@ -230,6 +247,26 @@ class EventsMixin(object):
     @when_deactivated.setter
     def when_deactivated(self, value):
         self._when_deactivated = self._wrap_callback(value)
+
+    @property
+    def when_toggled(self):
+        """
+        The function to run when the device changes state, either from active
+        to inactive, or from inactive to active.
+
+        This can be set to a function which accepts no (mandatory) parameters,
+        or a Python function which accepts a single mandatory parameter (with
+        as many optional parameters as you like). If the function accepts a
+        single mandatory parameter, the device that toggled will be
+        passed as that parameter.
+
+        Set this property to ``None`` (the default) to disable the event.
+        """
+        return self._when_toggled
+
+    @when_toggled.setter
+    def when_toggled(self, value):
+        self._when_toggled = self._wrap_callback(value)
 
     @property
     def active_time(self):
@@ -305,6 +342,11 @@ class EventsMixin(object):
         if self.when_deactivated:
             self.when_deactivated()
 
+    def _fire_toggled(self):
+        # These methods are largely here to be overridden by descendents
+        if self.when_toggled:
+            self.when_toggled()
+
     def _fire_events(self):
         old_state = self._last_state
         new_state = self._last_state = self.is_active
@@ -325,7 +367,9 @@ class EventsMixin(object):
                 self._active_event.clear()
                 self._inactive_event.set()
                 self._fire_deactivated()
-
+            self._toggle_event.set()
+            self._fire_toggled()
+ 
 
 class HoldMixin(EventsMixin):
     """
